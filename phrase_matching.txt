@@ -1,0 +1,38 @@
+
+Phrase matching
+	* Must find all terms in the right order
+		$ bin/curl -XGET 127.0.0.1:9200/movies/_search?pretty -d '
+				{
+					"query": {
+						"match_phrase": {		=> match phrase filters for a phrase 
+							"title": "star wars"
+						}
+					}
+				}'
+
+				* store the order in which those terms occurs
+
+	* slop
+		$ bin/curl -XGET 127.0.0.1:9200/movies/_search?pretty -d '
+				{
+					"query": {
+						"match_phrase": {
+							"title": {"query": "star wars", "slop": 1}
+						}
+					}
+				}'
+				* slop represents how far you are willing to let a term move to satisfy a phrase (in either direction)
+					- so, in this case, "Star Trek Beyond" would match, because we are looking for "star wars" with slop 1
+					- it allows as well a reversal of a phrase
+						+ so, "star beyond" would match "beyond star" if slop is set to 1
+
+	* Proximity query
+		- use a really high slop  if we want to get any documents that contain the words in our phrase, but we want documents that have the words closer together  scored higher
+			$ bin/curl -XGET 127.0.0.1:9200/movies/_search?pretty -d '
+				{
+					"query": {
+						"match_phrase": {
+							"title": {"query": "star wars", "slop": 100 }
+						}
+					}
+				}'
