@@ -1,0 +1,388 @@
+Inserting data via JSON / REST
+
+	-	movies - is the name of the index and we will follow it by unique doc id that we are assigning for that movie
+		-d is used to specify the body of the request
+		genre - list of genres
+		curl -XPUT 127.0.0.1:9200/movies/_doc/109487 -d '
+		{
+		"genre" :
+		["IMAX","Sci-Fi"],
+		"title" : "Interstellar",
+		"year" : 2014
+		}'
+
+	- Create mappings as part of the index:
+		$ bin/curl -XPUT 127.0.0.1:9200/movies/_doc/109487 -d '
+		{
+		"genre" :
+		["IMAX","Sci-Fi"],
+		"title" : "Interstellar",
+		"year" : 2014
+		}'
+		{"_index":"movies","_type":"_doc","_id":"109487","_version":1,"result":"created","_shards":{"total":2,"successful":1,"failed":0},"_seq_no":0,"_primary_term":1}
+
+		- Get created mappings, as part of the index:
+		$ bin/curl -XGET 127.0.0.1:9200/movies/_mapping
+		{"movies":{"mappings":{"properties":{"genre":{"type":"text","fields":{"keyword":{"type":"keyword","ignore_above":256}}},"title":{"type":"text","fields":{"keyword":{"type":"keyword","ig
+		nore_above":256}}},"year":{"type":"long"}}}}}
+
+		- Insert the movie and apply that mapping to it:
+			- this movie will be of type "_doc" and _id "109487"
+		$ bin/curl -XPOST 127.0.0.1:9200/movies/_doc/109487 -d '
+		 {
+			"genre" : ["IMAX","Sci-Fi"],
+			"title" : "Interstellar",
+			"year": 2014
+		 }'
+		 
+		result: {"_index":"movies","_type":"_doc","_id":"109487","_version":2,"result":"updated","_shards":{"total":2,"successful":1,"failed":0},"_seq_no":1,"_primary_term":1}
+
+
+		- Get the inserted data to index:
+		$ bin/curl -XGET 127.0.0.1:9200/movies/_search?pretty
+
+	- Insert data with a bulk operation
+		+ fetch data from wget http://media.sundog-soft.com/es7/movies.json
+		+ certify that the file is the one we need:
+			$ cat movies.json
+		$ bin/curl -XPUT 127.0.0.1:9200/_bulk?pretty --data-binary @movies.json
+
+
+	- Update existing index	
+	* in elasticsearch, documents are immutable
+		workaround: 
+			+ a new document is created with an incremented_version
+			+ old document is marked for deletion
+			+ to update a document, we do a copy of that doc which will have an incremented version
+			+ id and version togheter mus be unique
+			+ elasticsearch will use the most recent version created
+			+ elasticsearch will do a cleanup, and the old version will go away
+			+ for this operation, we use a POST
+			
+			* in the folowing example, we are going to update the title for a doc with id 109487
+				- first update index:
+					$ bin/curl -XPUT 127.0.0.1:9200/movies/_doc/109487?pretty -d '
+						{
+						"genres": ["IMAX","Sci-Fi"],
+						"title": "Intersteller foo",
+						"year": 2014
+						}'
+				- certify the index was updated
+					$ bin/curl -XGET 127.0.0.1:9200/movies/_doc/109487?pretty
+				- do a partial update, just changing the title:
+					$ bin/curl -XPOST 127.0.0.1:9200/movies/_doc/109487/_update -d '
+						{
+						"doc": {
+						"title": "Interstellar"
+						}
+						}'
+					result:	{"_index":"movies","_type":"_doc","_id":"109487","_version":4,"result":"updated","_shards":{"total":2,"successful":1,"failed":0},"_seq_no":7,"_primary_term":1}
+					
+				- get that doc to certify version was updated to 4:
+					$ bin/curl -XGET 127.0.0.1:9200/movies/_doc/109487?pretty
+
+	- Delete existing documents
+	* identifies which index you and which document id
+		- fetch document to be deleted
+			$ bin/curl -XGET 127.0.0.1:9200/movies/_search?q=Dark
+		- delete document
+			$ bin/curl -XDELETE 127.0.0.1:9200/movies/_doc/58559?pretty
+		result:
+			{
+			  "_index" : "movies",
+			  "_type" : "_doc",
+			  "_id" : "58559",
+			  "_version" : 2,
+			  "result" : "deleted",
+			  "_shards" : {
+				"total" : 2,
+				"successful" : 1,
+				"failed" : 0
+			  },
+			  "_seq_no" : 8,
+			  "_primary_term" : 1
+
+
+
+
+Dealing with concunrrency 
+	- in a scenario where I have 2 user trying to get view count page
+	- both they want to increment count page
+	- Optimistic concurrency control
+		* it is an approach where you have a sequence number which is owned by prinary chard
+			- by taking this sequence number and primary term together, we have a unique cronologial record for tha given document
+			- so when you get a document, you get a sequence number for that document
+			- if tow threads try to update the same sequence, one of them should succeed
+			- one of them will fail, and can use retry_on_conflits=N, in order to retry making the change
+	Try to delete document:
+		$ bin/curl -XPUT "127.0.0.1:9200/movies/_doc/109487?if_seq_no=7&if_primary_term=1" -d '
+		 {
+		 "genres": ["IMAX", "Sci-Fi"],
+		 "title": "Interstellar foo",
+		 "year": 2014
+		 }'
+
+
+Analyzer and Tokenyzer
+	- we have to make a decision whenever we have a field that contains a textual information
+	- it can be one of two types:
+		* text searched as exact match 
+			+ in this case, use a keyword type when defining tha mapping for the index
+			+ this conf, will suppress analysing for that text field entirely
+			+ will only allow exact match for that field, case sensitive and all of what's in that field
+		* for partial matches
+			+ choose the text type matching instead
+			+ this allows what we call analysers in that field
+			+ we can specify which analyser we want to specify for that field
+				- for example an analiser for specific language
+				- can do results for search case insensitive 
+				- they can handle stemming, gropping the 'ing' or the 'ed' or the 'es' sufixes on your words
+				-we can remove stop words like "it", "and", "the"
+				- we can apply synonynous and have those treated equally in the search
+				- a search with multiple terms, does not have to match all of them. If we just have one of those terms match in a text field, it will come back  as a potential result
+		or analyzed
+			+ they can be partial matches that are ranked by relevance
+
+	- search for a document that has Star Trek in the title	
+		$ bin/curl -XGET 127.0.0.1:9200/movies/_search?pretty -d '
+			{
+			"query": {
+			"match": {
+			"title": "Star Treck"
+			}
+			}
+			}'
+			With this analyser, we have a partial match. 
+			We can see the score for the match-> "_score" : 0.9579736,
+			Best match will be on top of the result
+			The search term "Star Trek" got brought broken up into two unique search terms, and usin the inverted index, all the result found, match the term "star"
+			
+	- search by renges
+		$ bin/curl -XGET 127.0.0.1:9200/movies/_search?pretty -d '
+			{
+			"query": {
+			"match_phrase": {
+			"genre": "sci"
+			}
+			}
+			}'
+			with this analyser, the term "sci" was used as a match. I lowercase everything to normalize that data, so upper case or lower case side doesn't matter, it is using it just like a title, so partial hits are ok as well
+			
+		* to have genre more tightly defined, with only one hit for the actual phrase sci fi. 
+		* for this, we have to change our mappings and reindex
+			$ bin/curl -XDELETE 127.0.0.1:9200/movies/
+		* define a new mapping and reindex our data	
+			$ bin/curl -XPUT 127.0.0.1:9200/movies -d '
+				{
+				"mappings": {
+				"properties": {
+				"id": {"type": "integer"},
+				"year": {"type": "date"},
+				"genre": {"type": "keyword"},   => we are only going to do exact matches, no analyzer will be run on this field. It will be casesensitive, the whole word
+				"title": {"type": "text", "analyzer": "english"} => will have an analyser applied, so we can do partial matches, normalizing for lowercase. We can also specify the specific analyzer for this field, for example "analyzer": "english". We can apply stop words and synonyms that might be specific for English language 
+				}
+				}
+				}
+				}'
+				result:
+				{"acknowledged":true,"shards_acknowledged":true,"index":"movies"}
+		* now, we can rindex data
+			$ bin/curl -XPUT 127.0.0.1:9200/_bulk?pretty --data-binary @movies.json
+		* we can now search for exact match "Sci-Fi", and we should get a match:
+			$ bin/curl -XGET 127.0.0.1:9200/movies/_search?pretty -d '
+				{
+				"query": {
+				"match": {
+				"genre": "Sci-Fi"
+				}
+				}
+				}'
+		* we can also fetch title as "star wars"
+			$ bin/curl -XGET 127.0.0.1:9200/movies/_search?pretty -d '
+				{
+				"query": {
+				"match": {
+				"title": "star wars"
+				}
+				}
+				}'
+				* in thie case, we are using partial match, and we should get a result
+					- star wars appear in the first place, because it has higher score than star trek
+
+
+
+
+Data modeling
+	* differences between normalyze and denormalye data
+		+ normalized data 
+			- minimizes storage space, make it easy to change  titles
+			- but, required two queries, and storage is cheap
+			- compact way of storing data
+			- I want to storage things once
+			 but requires more than one query to correlate data
+			- if I cahnge one column, it is reflected directly to the entire database
+
+		- denormalized 	
+			- I want to easily change data
+			- if you ewant to have lower latency, and solve everything in a single transacti0n, instead of two
+			- in this case, come columns might be duplicated, but we will have only one query
+			- it wastes space, but space is cheap, no problem
+			- if I want to change a column, I have to do it in may places
+			- so this kind of things is more likely to be done with data that do not change very ofter
+
+			- parent / child relationship
+				- create a new index (series) with a parent / child relationship in the mappings
+				* $ bin/curl -XPUT 127.0.0.1:9200/series -d '
+					{
+					"mappings": {
+					"properties": {
+					"film_to_franchise": {
+					"type": "join",			=> join films to franchise
+					"relations": {"franchise": "film"}		=> franchise is parent, films are childs
+					}
+					}
+					}
+					}'
+					{"acknowledged":true,"shards_acknowledged":true,"index":"series"}
+				- download series 
+					$ wget  http://media.sundog-soft.com/es7/series.json
+				- add series as bulk
+					$ bin/curl -XPUT 127.0.0.1:9200/_bulk?pretty --data-binary @series.json
+					
+				- retrieve all the series associated witr star wars franchise
+					$ bin/curl -XGET 127.0.0.1:9200/series/_search?pretty -d '
+						{
+						"query": {
+						"has_parent": {"parent_type": "franchise",		=> we can have multiple parents
+						"query": {
+						"match": {		=> we can have a subquery to match
+						"title": "Star Wars"
+						}
+						}
+						}
+						}
+						}'
+						
+				- find a specific franchise associated with a film
+					$ bin/curl -XGET 127.0.0.1:9200/series/_search?pretty -d '
+						{
+						"query": {
+						"has_child": {
+						"type": "film",
+						"query": {
+						"match": {
+						"title": "The Force Awakens"
+						}
+						}
+						}
+						}}'
+
+
+Flatterned datatype
+	* if we need to manage documents with many inner fields, elastic search performance starts soffering, because each subfield can be matched to individual fields by default, with dynamic mapping
+	* to avoid mapping explosing, elasticsearch, offers flattern data type to avoid maaping every subfield as an individual field
+
+	- use the following commands, found in:
+		http://media.sundog-soft.com/es/flattened.txt
+	- create an indexe called demo-default:
+		curl -XPUT "http://127.0.0.1:9200/demo-default/_doc/1" -d'{
+		  "message": "[5592:1:0309/123054.737712:ERROR:child_process_sandbox_support_impl_linux.cc(79)] FontService unique font name matching request did not receive a response.",
+		  "fileset": {
+			"name": "syslog"
+		  },
+		  "process": {
+			"name": "org.gnome.Shell.desktop",
+			"pid": 3383
+		  },
+		  "@timestamp": "2020-03-09T18:00:54.000+05:30",
+		  "host": {
+			"hostname": "bionic",
+			"name": "bionic"
+		  }
+		}'
+	- see what mappings were created automatically
+		$ bin/curl -XGET "http://127.0.0.1:9200/demo-default/_mapping?pretty=true"
+		- elasticsearch assigned types for each of the fields
+		- flatern data types is designed to handle the use case of unknown or large numbers of inner fields occouring in a document
+			+ this can cause search cluster to go down
+			+ each fiels has an associated mapping type in its index, and can be automatically assigned
+			+ elasticsearch holds the mapping information of every index in the cluster state. Cluster state includes information such as index mappings, the node details, etc.
+			+ we can query the cluster state by using the cluster state API:
+				curl -XGET "http://127.0.0.1:9200/_cluster/state?pretty=true" >> es-cluster-state.json
+				open the es-cluster-state.json file with nano, enter CRTL+W to searh for "demo-default"
+			+ updatig the mapping cause updates to be sent from Master Node to other nodes to synchronize the mappings	
+				- this can end up in having poor performance and causeing the cluster going down
+				- this is called mapping explosion
+				- to prevent this, flat end to data type was introduced
+				- this data type maps the entire object along with its inner fields into a single field
+				- if a field contains a inner field, the flat data type maps the parent field as a single type named flattened and the inner fields don't appear in the mappings at all, reducing the total map fields
+			
+			+ for that, let's create a new index called demo-flattened
+			+ create a mapping for that index:
+				curl -XPUT "http://127.0.0.1:9200/demo-flattened/_mapping" -d'{
+				  "properties": {
+					"host": {
+					  "type": "flattened"
+					}
+				  }
+				}'
+
+
+
+	Mapping excetions
+		* fetch commands from:
+			http://media.sundog-soft.com/es/exceptions.txt
+		* create an index called microservices:
+			curl --request PUT 'http://localhost:9200/microservice-logs' \
+			--data-raw '{
+			   "mappings": {
+				   "properties": {
+					   "timestamp": { "type": "date"  },
+					   "service": { "type": "keyword" },
+					   "host_ip": { "type": "ip" },
+					   "port": { "type": "integer" },
+					   "message": { "type": "text" }
+				   }
+			   }
+			}'
+		* what happens if we insert data with wrong value for a type (port is an inter and we are passing a string)
+			$ bin/curl --request POST 'http://localhost:9200/microservice-logs/_doc?pretty' \
+			--data-raw '{"timestamp": "2020-04-11T12:34:56.789Z", "service": "XYZ", "host_ip": "10.0.2.15", "port": "15000", "message": "Hello!" }'
+		result: it does not give an error
+		
+		* what if we try port: "NONE"
+			$ bin/curl --request POST 'http://localhost:9200/microservice-logs/_doc?pretty' \
+			--data-raw '{"timestamp": "2020-04-11T12:34:56.789Z", "service": "XYZ", "host_ip": "10.0.2.15", "port": "NONE", "message": "I am not well!" }'
+		return; mapper_parsing_exception
+		
+		* we can solve the problem by defining a ignore or malformed  mapping parameter
+			$ bin/curl --request POST 'http://localhost:9200/microservice-logs/_close'
+			$ bin/curl --location --request PUT 'http://localhost:9200/microservice-logs/_settings' \
+				> --data-raw '{
+				>    "index.mapping.ignore_malformed": true
+				> }'
+
+		* $ bin/curl --request POST 'http://localhost:9200/microservice-logs/_open'
+		* if we run the same command which causes an exception, it will actionally work.
+		* we can see that port field is ignored
+			$ bin/curl 'http://localhost:9200/microservice-logs/_doc/W9RswncBL0W-VOV5MFcn?pretty'
+				{
+				  "_index" : "microservice-logs",
+				  "_type" : "_doc",
+				  "_id" : "W9RswncBL0W-VOV5MFcn",
+				  "_version" : 1,
+				  "_seq_no" : 1,
+				  "_primary_term" : 2,
+				  "_ignored" : [
+					"port"
+				  ],
+				  "found" : true,
+				  "_source" : {
+					"timestamp" : "2020-04-11T12:34:56.789Z",
+					"service" : "XYZ",
+					"host_ip" : "10.0.2.15",
+					"port" : "NONE",
+					"message" : "I am not well!"
+				  }
+				}
+		

@@ -1,0 +1,60 @@
+- Mappings
+	* is a schema definition
+	* tells elasticsearch what is the format to store data in, how to index it and how to analyse it
+	* elasticsearch has usually resonable defaults and infer it from the nature of data (right thing to do more often and not, if you are trying to store string or floating points, numbers or integers, but we can give it a hint)
+
+	- ex:
+		curl -XPUT 127.0.0.1:9200/movies -d '
+		{
+			"mappings": {
+				"properties": {
+					"year": {"type": "date"}
+				}
+			}
+		}'
+		* from movie lines we want the year type filed to be explicitly interpreted as a data type field
+		* we are going to do a put command to put information into our index
+
+	- common mappings:
+		* fiels types
+			- mapping can define field types like:
+				+ string, byte, short, integer, long, float, double, boolean, date
+				"properties": {
+					"user_id": {
+						"type": "long"
+					}
+				}
+
+		* field index:
+			- if we want to specify the field as index or not, for full text search
+				+ indexed for full-text search (analyzed)
+				+ not indexed for full-text search (not_analyzed)
+				+ string, byte, short, integer, long, float, double, boolean, date
+				"properties": {
+					"genre": {
+						"index": "not_analysed"
+					}
+				}
+		* field analyser
+			- define your tokenizer and token filter: standard / whitspace / simple / english, etc
+			- can have character filters, for example remove html H2 e-mail encoding, tokening with tokenizer
+			- specify how to split strings bnased on whitespace or ponctuation, or non-letter characters
+			- token filters where you can do things like lowercase all information for research, stemming synonymous and stop words
+			- different token filters to choose from - for example standar was split on word boundaries
+			- specify the language you want to use for this index, that will be language specific stop words and stemming rules that get imported as a result of what language we are using
+			- 3 things an analyser can do:
+				* charactrer filter - remove html encoding, convert & to AND
+				* tokenizer - splits strings based on whitespace / punctuation / non-letters 
+					- how to break up the words
+				* token filter - if you want your searches lowercase everything, stemming (normalize all those different variants of the given words to the same root stem, boxed, boxing, box), synonymous (ex: big and large), stopwords (don't want to waste space and store things like "the", "and", "a"; for all searches too)
+					- don+t use stopwords for phrase search (for example "to be or not to be")
+					- sometimes, stopewords have side effects
+			"properties": {
+					"analyser": "english"
+				}
+
+			- choices for analysers:
+					+ standard analyser - splits everything on word boundaries, removes ponctuation, lowercases, good choive if language is unknown
+					+ simple analyser - splits on everything that is not a letter, and lowercase
+					+ whitespace  - splits on whitespace but doesn't lowercase
+					+ language -  (ie: english) - accounts for language specific stop-word and stemming

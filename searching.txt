@@ -1,0 +1,712 @@
+Query Lite
+	/movies/_search?q=title:star 	=> returns a json structure of all the movies that contain the word "star" in the title
+	/movies/_search?q=+year:>2010+title:trek => search for movies that both have release year greater than the year 2010 and "trek" in the title
+
+	- when you are sendong across URLs, you need to enconde them very often, and can get confusing 
+		+ /movies/_search?q=%2Byear%3A%3E2010+%2Btitle%3Atrek
+		+ those character must be econded to theru hexadecimal equivalency, in order to be transmited over the internet
+		+ it can be dangerous, with security issues, if exposed to end users.Intensive operations can be started and can bring down the cluster
+		+ fragile -> with only one wrong character, and it will not work
+		+ so this type of query should not be used in production
+
+
+	- JSON search in depth
+		- query DSL goes in the request body as JSON (a GET request can have a body)
+		- here, we don+t have to deal woth URL encoding, becuse we don't have those cryptic characters to makeup URI searches
+
+		$ bin/curl -XGET 127.0.0.1:9200/movies/_search?pretty -d '
+		{
+			"query": {
+				"match": {
+					"title": "star"
+				}
+			}
+		}'
+
+		Things we can do in a query:
+			- filters
+				* used when we have a binary operation where the answer is "yes" or "no". They are much efficient than queries 
+				* they are faster
+				* they can be catched by elastic search so that if you do another query usinf the same filter, result will be faster
+			- queries
+				* used to for returnig data in terms of relevance
+
+			- boolean wuery with a filter
+				$ bin/curl -XGET 127.0.0.1:9200/movies/_search?pretty -d '
+					{
+						"bool": {
+							"match": {
+								"must": {"term": {"title": "trek"}}
+								"filter": {"range": {"year": {"gte": 2010}}}
+							}
+						}
+					}'
+				 - here we have a boolean query, meaning that we can combine things together 
+				 	* the equivalent of an "and" with bool inquiry is called must
+				 	* in this case, the result must have "trek" on the title
+				 	* we are going further to filter that result, by having a range filter that contains the year greater or equal to 2010
+
+		Type of filter:
+			+ Term filter
+				* filter by exact value
+					{"term": {"year": 2004}}
+			+ Terms
+				* match if any exact values in a list match
+					{"terms": {"genre": ["Sci-Fi", "Adventure"]}}
+			+ Range
+				* find number of dates in a given range (gt, gte, lt, lte)
+					{"range": {"year": "gte": 2010}}
+			+ Exist
+				* find documents where a filter exists
+					{"exists": {"fild": "tags"}}  
+			+ Missing
+				* find documents where a field is missing
+					{"missing": {"field": "tags"}}
+			+ Bool
+				* combine filters with Boolean logic (must, must_no, should)
+
+			We may have complex boolean filters, where we can have conditions that must be combined with and-relationships, and not-relationships
+
+		Type of queries:
+			+ Match_all
+				* returns all documents and is the default. Normally, it is used with a filter
+					{"match_all": {}}
+			+ Match
+				* searches analyzed results, such as full text search
+					{"match": {"title": "star"}}
+			+ Multi-match
+				* run the same query on multiple fields
+					{"multi_match": {"query": "star", "fields": ["title", "synopsis"]}}
+			+ Bool
+				* works like a bool filter, but results can be scored by relevance
+
+		We can combine filters inside queries, or queries  inside filters too
+
+		* Another example with filters:
+			$ bin/curl -XGET 127.0.0.1:9200/movies/_search?pretty -d '
+			{
+				"query": {
+					"bool": {
+						"must": {"match": {"genre": "Sci-Fi"}},
+						"must_not": {"match": {"title": "trek"}},
+						"filter": {"range": {"year": {"gte": 2010, "lt": 2015}}}
+					}
+				}
+			}'
+
+
+		* tested examples:
+			$ bin/curl -XGET 127.0.0.1:9200/movies/_search?pretty -d '
+				{
+				"query": {
+				"match": {
+				"title": "star"
+				}
+				}
+				}'
+			
+			$ bin/curl -XGET 127.0.0.1:9200/movies/_search?pretty -d '
+				{
+				"query": {
+				"bool": {
+				> "must": {"term": {"title": "trek"}},
+				> "filter": {"range": {"year": {"gte": 2010}}}
+				> }
+				> }
+				> }'
+
+
+
+	Phrase matching
+		* Must find all terms in the right order
+			$ bin/curl -XGET 127.0.0.1:9200/movies/_search?pretty -d '
+					{
+						"query": {
+							"match_phrase": {		=> match phrase filters for a phrase 
+								"title": "star wars"
+							}
+						}
+					}'
+
+					* store the order in which those terms occurs
+
+			* tested examples
+				$ bin/curl -XGET 127.0.0.1:9200/movies/_search?pretty -d '
+					{
+					"query": {
+					"match_phrase": {
+					"title": "star wars"
+					}
+					}
+					}'
+				We will not match "star trek", since we are kust looking for matching phrase
+
+		* slop
+			$ bin/curl -XGET 127.0.0.1:9200/movies/_search?pretty -d '
+					{
+						"query": {
+							"match_phrase": {
+								"title": {"query": "star wars", "slop": 1}
+							}
+						}
+					}'
+					* slop represents how far you are willing to let a term move to satisfy a phrase (in either direction)
+						- so, in this case, "Star Trek Beyond" would match, because we are looking for "star wars" with slop 1
+						- it allows as well a reversal of a phrase
+							+ so, "star beyond" would match "beyond star" if slop is set to 1
+
+			* tested examples:
+				$ bin/curl -XGET 127.0.0.1:9200/movies/_search?pretty -d '
+					{
+					"query": {
+					"match_phrase": {
+					"title": {"query": "star beyond", "slop": 1}
+					}
+					}
+					}'
+				results like "title" : "Star Trek Beyond", appears, because we added a slop 1
+
+	* Proximity query
+		- use a really high slop  if we want to get any documents that contain the words in our phrase, but we want documents that have the words closer together  scored higher
+			$ bin/curl -XGET 127.0.0.1:9200/movies/_search?pretty -d '
+				{
+					"query": {
+						"match_phrase": {
+							"title": {"query": "star wars", "slop": 100 }
+						}
+					}
+				}'
+
+			* tested example:
+				$ bin/curl -XGET 127.0.0.1:9200/movies/_search?pretty -d '
+					{
+					"query": {
+					"match_phrase": {
+					"title": {"query": "star beyond", "slop": 100}
+					}
+					}
+					}'
+
+	Pagination
+		* for this, we have to specify a "from" and a "size" parameter as part of the query
+		* "from" starts counting from zero
+			$ bin/curl -XGET 127.0.0.1:9200/movies/_search?pretty -d '
+				{
+					"from": 2,
+					"size": 2,
+					"query": {"match": {"genre": "Sci-Fi"}}
+				}'
+
+		* beaware
+			+ deep pagination can kill performance
+				-> for example call docs from page 10332 to 10443
+					* this will have an overhead only to search for 10 results
+					* it has to retrieve, collect and sort everything in order to figure out what result number 110332 is, in order to return the result requested
+					* we should enforce an upper bound on how many results we will return to our users
+					* otherwise some nasty users may abuse and break down your app
+			+ every result can be retrieved, collected and sorted
+			+ enforce an upper bound on how many results you will return to users
+
+		* tested example:
+			$ bin/curl -XGET '127.0.0.1:9200/movies/_search?size=2&pretty'
+			*we get back two results
+			* fetching next two elements:
+				$ bin/curl -XGET '127.0.0.1:9200/movies/_search?size=2&from=2&pretty'
+			* similar pagination can be done with:
+			$ bin/curl -XGET 127.0.0.1:9200/movies/_search?pretty -d '
+				{
+				"from": 2,
+				"size": 2,
+				"query": {"match": {"genre": "Sci-Fi"}}
+				}'
+
+
+	Sorting
+		*  we have to specify sort with the field we want it to sort by
+			+ ex: sort documents by release date
+				$ bin/curl -XGET 127.0.0.1:9200/movies/_search?sort=year&pretty
+
+		* sorting with String
+			* if we have a text field like a title in our movie dataset, those are going to be analyzed for full text search, and can't be used to sort documents
+			* this is because it exists in the inverted index as individual terms, not as entire string
+			* so, we can't sort by movie title
+			* as a solution, we can map a keyword (subfield which is not analyzed)
+				$ bin/curl -XGET 127.0.0.1:9200/movies/_search?pretty -d '
+				{
+					"mappings": {
+						"properties": {
+							"title": {
+								"type": "text",
+								"fields": {
+									"raw": {
+										"type": "keyword"	=> means this field is not analyzed
+									}
+								}
+							}
+						}
+					}
+				}'
+				+ in this case, title field is used for full text search
+				+ and title.raw field, which can be used for sorting purposes
+				+ ex:
+					$ bin/curl -XGET '127.0.0.1:9200/movies/_search?sort=title.raw&pretty'
+				+ remember, a mapping cannot be changed after creating the index, so this must be done before crearing the index
+
+
+				* teste example:
+					$ bin/curl -XGET '127.0.0.1:9200/movies/_search?sort=year&pretty'
+		
+					* filter by title
+						$ bin/curl -XGET '127.0.0.1:9200/movies/_search?sort=title&pretty'
+						returns an error
+					* to solve it, create a new mapping and reindex:
+						$ bin/curl -XPUT 127.0.0.1:9200/movies/ -d '
+							{
+							"mappings": {
+							"properties": {
+							"title": {
+							"type": "text",
+							"fields": {
+							"raw": {
+							"type": "keyword"
+							}
+							}
+							}
+							}
+							}
+							}'
+					* insert data again
+						$ bin/curl -XPUT 127.0.0.1:9200/_bulk?pretty --data-binary @movies.json
+					* sort data by title	
+						$ bin/curl -XGET '127.0.0.1:9200/movies/_search?sort=title.raw&pretty'
+
+
+
+	Fuzzi queries
+		* dealing with certain level of typos or misspellings
+		* it is around a Levenshtein edit distance - allows us to quantify common misspellings and typos, and there are three different classes (all with distance of 1):
+			- substitutions - catch thingd where someone just typed in the wrong character by mistake
+				* ex: Intersteller instead of Interstellar ('e' instead of an 'a'), that would still match
+			- insertions - mistakenly insert an extra character that shouldn't have been there - it will still match
+			- deletions	- work the same way
+
+			* ex:
+				$ bin/curl -XGET 127.0.0.1:9200/movies/_search?pretty -d '
+				{
+					"query": {
+						"fuzzy": {
+							"title": {"value": "intrsteller", "fuziness":2}		=> if we miss an 'e' and change 'a' by 'e', since fuziness is set to 2, it will match
+						}
+					}
+				}'
+
+		* Auto setting fuziness:
+			+ when we want a fuziness tolerance, depending on the length of the String.
+				0 - for 1-2 charactes (zero tolerance)
+				1 - for 3-5 characters strings
+				2 for anything else
+
+
+	Partial matching
+		* used for prefix matching, subsetting of a string that matches int the search string
+		* map a year to be a string
+		$ bin/curl -XGET 127.0.0.1:9200/movies/_search?pretty -d '
+		{
+			"query": {
+				"prefix": {
+					"year": "201"
+				} 
+			}
+		}'
+		-> this will end up matching te years 2010, 2011, 2013, any string beggining wit 201
+
+
+	Wildcard queries
+		* use the star (*) character to represent a wildcard
+		$ bin/curl -XGET 127.0.0.1:9200/movies/_search?pretty -d '
+		{
+			"query": {
+				"prefix": {
+					"year": "1*"
+				} 
+			}
+		}'
+		-> this would return a hit for anything that starts with character 1
+		-> in terms of regular expressions, this is a regexp query, where we can specify a full regular expression
+
+		* to test this with date, we will reindex movies, createing a mapping where date is a text type instead of date
+
+		* tested example:
+			* delete movies index
+			$ bin/curl -XDELETE 127.0.0.1:9200/movies
+			* create new mapping:
+				$ bin/curl -XPUT 127.0.0.1:9200/movies -d '
+				> {
+				> "mappings":{
+				> "properties": {
+				> "year": {
+				> "type": "text"
+				> }
+				> }
+				> }
+				> }
+				> }'
+				{"acknowledged":true,"shards_acknowledged":true,"index":"movies"}
+				
+			* add data to the index
+				$ bin/curl -XPUT 127.0.0.1:9200/_bulk --data-binary @movies.json
+			* query documents which starting date starts with 201
+				$ bin/curl -XGET '127.0.0.1:9200/movies/_search?pretty' -d '
+					{
+					"query": {
+					"prefix": {
+					"year": "201"
+					}
+					}
+					}'
+					-> years in ninety's would not come back
+			* query with wildcard 1*
+				$ bin/curl -XGET '127.0.0.1:9200/movies/_search?pretty' -d '
+					{
+					"query": {
+					"wildcard": {
+					"year": "1*"
+					}
+					}
+					}'
+					-> years larger than 2000 would not come back
+
+	
+	Query-time Search as you type
+		* we don't have to reindex data for this to work
+		* match_phrase_prefix is the same match prefix, but work at phrase level
+		* slop is used for ordering the words
+			-> this would help on search where users enters parts of the query (ex: "Trek star")
+		$ bin/curl -XGET 127.0.0.1:9200/movies/_search?pretty -d '
+		{
+			"query": {
+				"match_phrase_prefix": {
+					"title": {
+						"query": "star trek",
+						"slop": 10	
+					}
+				}
+			}'
+		}
+
+
+	
+	N-Grams, Part1
+		* for large scale, we can use index time solutions
+		* ex: to build up a set of uni-grams for the word "star", that would just consist of all the single letters set that compose that term (S T A and R)
+			[s, t, a, r]
+		* we can also compose a set of bi-grams, which are just pairs of letters inside the search term
+			[st, ta, ar]
+		* tri-grams: [sta, tar]
+		* 4-gram: [star]
+
+		* edge N-grams are built only on the beggining of each term
+			- compute n gram for a given term at the beginning
+			- for ex, for "star" term, I would have
+				unigram: s
+				bigram: st
+				tri-grams: sta
+				4-gram: star
+		* autocomplete analyzer:
+			$ bin/curl -XPUT 127.0.0.1:9200/movies?pretty -d '
+				{
+					"settins": {
+						"analysis": {				
+							"filter": {
+								"autocomplete_filter": {
+									"type": "edge_ngram",
+									"min_gram": 1,	=> minimum ngram of length of 1 (singel character) with a maximum of 20
+									"max_gram": 20	=> we can handle words up to 20 letters long in our search 
+								}
+							},
+						"analyzer": {		=> custom analyser
+							"type": "custom",
+							"tokenizer": "standard",	=>
+							"filter": [
+								"lowercase",	=> standard lowercase filter
+								"autocomplete_filter"	=> autocomplete filter create above
+							]
+						}
+						}
+					}
+				}
+			}'
+			-> we can apply this analyzer at index time
+
+		* create a mapping, before indexing data
+			$ bin/curl -XPUT 127.0.0.1:9200/movies?pretty -d '
+			{
+				"properties": {
+							"title": {
+								"type": "text",
+								"analyzer": "autocomplete"	=> use custom analyzer, created before
+						}
+					}'
+			}
+
+		* create the query to use that analyzer:
+			$ bin/curl -XGET 127.0.0.1:9200/movies/_search?pretty -d '
+			{
+				"query": {
+					"match": {
+						"title": {
+							"query": "sta",
+							"analyzer": "standard"
+						}
+					}
+				}
+			}'
+			-> here we have a different analyzer on the query side and on the index
+			-> in this case "sta" is our query, on the index side, it will be matched against the tri-gram "sta"
+
+		* completion suggester
+			+ allows to add explicit  list of completion, ahead of time
+
+
+
+		* tested example
+			* first, we have to delete the index
+			$ bin/curl -XDELETE 127.0.0.1:9200/movies
+			* build new analyzer with n-grams
+				$ bin/curl -XPUT '127.0.0.1:9200/movies?pretty' -d '
+					{
+					"settings": {
+					"analysis": {
+					"filter": {
+					"autocomplete_filter": {
+					"type": "edge_ngram",
+					"min_gram": 1,
+					"max_gram": 20
+					}
+					},
+					"analyzer": {
+					"autocomplete": {
+					"type": "custom",
+					"tokenizer": "standard",
+					"filter": [
+					"lowercase",
+					"autocomplete_filter"
+					]
+					}
+					}
+					}
+					}
+					}'
+			
+			* run the analyzer and try it out on a given text string
+				$ bin/curl -XGET '127.0.0.1:9200/movies/_analyze?pretty' -d '
+					{
+					"analyzer": "autocomplete",
+					> "text": "sta"
+					> }'
+					result:
+						{
+						  "tokens" : [
+							{
+							  "token" : "s",
+							  "start_offset" : 0,
+							  "end_offset" : 3,
+							  "type" : "<ALPHANUM>",
+							  "position" : 0
+							},
+							{
+							  "token" : "st",
+							  "start_offset" : 0,
+							  "end_offset" : 3,
+							  "type" : "<ALPHANUM>",
+							  "position" : 0
+							},
+							{
+							  "token" : "sta",
+							  "start_offset" : 0,
+							  "end_offset" : 3,
+							  "type" : "<ALPHANUM>",
+							  "position" : 0
+							}
+						  ]
+						}
+					->it applyed the lower case filter and the edge ngram seems to work
+					-> we ended up with the folowing tokens:
+						unigram: s
+						bigram: st
+						trigram: sta
+						
+			* now, we can apply this analyzer to our title field and actually start using that for auto completion
+			* we need to map this analyzer to our title field
+				$ bin/curl -XPUT '127.0.0.1:9200/movies/_mapping?pretty' -d '
+				{
+				"properties": {
+				"title": {
+				"type": "text",
+				"analyzer": "autocomplete"
+				}
+				}
+				}'
+				{
+				  "acknowledged" : true
+				}
+			
+			* we can reindex our data
+				$ bin/curl -XPUT '127.0.0.1:9200/movies/
+			* add data to movies index	
+				$ bin/curl -XPUT 127.0.0.1:9200/movies/_bulk --data-binary @movies.json
+			* query title using that analyzer:
+				$ bin/curl -XGET 127.0.0.1:9200/movies/_search?pretty -d '
+				{
+				"query": {
+				"match": {
+				"title": {
+				"query": "sta",
+				"analyzer": "standard"
+				}
+				}
+				}
+				}'
+			
+			* if I use "sta tr" in the query
+				$ bin/curl -XGET 127.0.0.1:9200/movies/_search?pretty -d '
+				{
+				"query": {
+				"match": {
+				"title": {
+				"query": "sta tr",
+				"analyzer": "standard"
+				}
+				}
+				}
+				}'
+				-> this time, the result might not be the one we are expecting
+				-> that is why we could add completion suggestions to have more fine control
+
+
+
+
+
+	Autocomple
+		* search autocomplete functionality is facilitaded by the search as you type
+		* what previously was a challanging effort, is made easy bulding autocomplete functionality
+		* in this case, elasticsearch generates sub-fields to split the original text into ngrams to make it possible to quickly find partial matches
+		* you can think on ngram  as a sliding window that moves across a sentence or word to extract partial sequences of words or letters that are then indexed to rapidly match partial text every time the user types a query
+		* ngrams are created during text analisys phase,
+			-> if a field is mapped as a search as you type data type 
+
+
+
+		Search as you type  field type
+			* analysis process ugins analyse API
+				-> analysis API enables us to combine various analysers, token risers, token filters and other components of the analysis process together to test query combinations and get immediat results
+				-> with the term star, starting from min-ngram which produces tokens of one character to max-ngram which produces tokens of 4 characters
+				-> consult media.sundog-soft.com/es/sayt.txt
+				
+			* create tokens for the analyser. 
+				curl --silent --request POST 'http://localhost:9200/movies/_analyze?pretty' \
+				--data-raw '{
+				   "tokenizer" : "standard",
+				   "filter": [{"type":"edge_ngram", "min_gram": 1, "max_gram": 4}],
+				   "text" : "Star"
+				}'
+				result:
+				{
+				  "tokens" : [
+					{
+					  "token" : "S",
+					  "start_offset" : 0,
+					  "end_offset" : 4,
+					  "type" : "<ALPHANUM>",
+					  "position" : 0
+					},
+					{
+					  "token" : "St",
+					  "start_offset" : 0,
+					  "end_offset" : 4,
+					  "type" : "<ALPHANUM>",
+					  "position" : 0
+					},
+					{
+					  "token" : "Sta",
+					  "start_offset" : 0,
+					  "end_offset" : 4,
+					  "type" : "<ALPHANUM>",
+					  "position" : 0
+					},
+					{
+					  "token" : "Star",
+					  "start_offset" : 0,
+					  "end_offset" : 4,
+					  "type" : "<ALPHANUM>",
+					  "position" : 0
+					}
+				  ]
+				}
+			-> created 4 tokens because our max_ngram is set to 4
+			
+			* create an new index called autocomplete
+				-> in the PUT request to create index, API will apply these search as you type data type to 2 fields, title and genre
+					$ bin/curl --request PUT 'http://localhost:9200/autocomplete' -d '{
+					   "mappings": {
+						   "properties": {
+							   "title": {
+								   "type": "search_as_you_type"
+							   },
+							   "genre": {
+								   "type": "search_as_you_type"
+							   }
+						   }
+					   }
+					}'
+					
+			* reindex movies data into autocomplete index
+				curl --silent --request POST 'http://localhost:9200/_reindex?pretty' --data-raw '{
+				 "source": {
+				   "index": "movies"
+				 },
+				 "dest": {
+				   "index": "autocomplete"
+				 }
+				}' | grep "total\|created\|failures"
+			
+			* install jq tool
+				sudo apt-get install jq
+			* run a query, running the inner created fields
+				curl -s --request GET 'http://localhost:9200/autocomplete/_search?pretty' --data-raw '{
+				   "size": 5,
+				   "query": {
+					   "multi_match": {
+						   "query": "Sta",
+						   "type": "bool_prefix",
+						   "fields": [
+							   "title",
+							   "title._2gram",
+							   "title._3gram"
+						   ]
+					   }
+				   }
+				}'
+				
+			* run an example to simulate entering search term in the terminal:
+				while true
+				do
+				 IFS= read -rsn1 char
+				 INPUT=$INPUT$char
+				 echo $INPUT
+				 curl --silent --request GET 'http://localhost:9200/autocomplete/_search' \
+				 --data-raw '{
+					 "size": 5,
+					 "query": {
+						 "multi_match": {
+							 "query": "'"$INPUT"'",
+							 "type": "bool_prefix",
+							 "fields": [
+								 "title",
+								 "title._2gram",
+								 "title._3gram"
+							 ]
+						 }
+					 }
+				 }' | jq .hits.hits[]._source.title | grep -i "$INPUT"
+				done

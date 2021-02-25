@@ -1,0 +1,66 @@
+Elastic Search
+	- Index - the high level object to be queried on Elasticsearch. It can be viewed like na table
+	- Document - It can be viewd as a row in the table
+		* the schema that defines the data type in a document, also belogs to the index
+		* we can have only one type of document in a single index
+	- Comparision with database
+		- cluster is like a database
+		- indece is like a table
+		- documents are wors on those tables
+
+	- How does it scale
+		* indexes are spread in shards
+		* every shard is a contained instance of Lucene in a node itself
+		* if you have a cluster of computers, you can spread the shard by multiple machines
+			- as you need more capacity, you add more machines into the cluster
+			- and add more shards to the entire index
+			- so, you can spread the load efficiently
+		* if you call elasticsearch server, it figures it out what documents you are interested in
+			- it can hash that to a particular ID
+			- a mathmatical function can very quickly figure out which shard own the given document
+			- and redirect it to the appropriate shard in your cluster
+			- index is distributed among different shards and a different shard can live in computers, in a cluster
+
+	- Primary and replica Shard
+		* it is how elasticsearch maintains resiliency to faillure
+		* if the index has two primary shards and two replicas, and three nodes (each node is an installation of elastic search)
+				- 2 primary shards means that they are the first copy of my index data, and there is where write request will be routed to, initialy. 
+				- that data will be replicated to replica shards, which can also handle reader requests
+				- this configuration is done on top of Lucene automaticaly
+				- if one of the nodes fails, there is not a big problem, because we have replicas of it in another node
+				- if node 1 go away, elasticsearch elects one of replicas to become the new primary one
+				- it is important to have an odd number od nodes for this sort of resiliency
+				- when we create a new index for a document, it is indexed into the primary shard, whenever that nodes lives on
+					* that data get automatically replicated to any replicas for that shard
+					* to read, they route it to the primary shard or to any replica of that shard, spreading the load efficiently
+					* more replicas means, more reading capacity for the entire lcuster
+					* write operation will be the bottleneck by the number of primary shard
+					* after configuring the number of primary shard, it cannot be changed later. We need to do that when we create an index upfront
+					PUT /testindex
+					{
+						"settings": {
+							"number_of_shards": 3,
+							"number_of_replicas": 1
+						}
+					}
+						->in the case above, we will end up with six shards (1 replica for each of those primary shards)
+
+						- if you add more replicas later on, it will give you more capacity for reading
+						- adding write capacity is not that easy
+							* we would need to re-index data into a new index and copy ot over, if needed
+
+			- application should run-robin request among nodes 
+
+
+	- Schema for document
+		* refers to the sort of information stored within your data
+		* information stored in the schema is stored by the index or the document type associated with the index
+		* type associated to the index might defines things like URL index that was requested, status code, request time, referring URL
+		* for an example like wikipedia, it might just include things like the text of an article, the author of an article, the title, etc
+		* it's all defined by the type mapping inside document index
+		* this type mapping is defined when we're setting up our indices
+
+	- Inverted Indices (it is not specific for elastic search, but for all search engines)
+		* allows to search phrases in reverse order 
+		* quickly map search terms to documents
+		* load balance search requests across the cluster
