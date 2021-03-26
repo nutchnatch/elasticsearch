@@ -2,7 +2,7 @@ Query Lite
 	/movies/_search?q=title:star 	=> returns a json structure of all the movies that contain the word "star" in the title
 	/movies/_search?q=+year:>2010+title:trek => search for movies that both have release year greater than the year 2010 and "trek" in the title
 
-	- when you are sendong across URLs, you need to enconde them very often, and can get confusing 
+	- when you are sending across URLs, you need to enconde them very often, and can get confusing 
 		+ /movies/_search?q=%2Byear%3A%3E2010+%2Btitle%3Atrek
 		+ those character must be econded to theru hexadecimal equivalency, in order to be transmited over the internet
 		+ it can be dangerous, with security issues, if exposed to end users.Intensive operations can be started and can bring down the cluster
