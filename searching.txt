@@ -4,7 +4,7 @@ Query Lite
 
 	- when you are sending across URLs, you need to enconde them very often, and can get confusing 
 		+ /movies/_search?q=%2Byear%3A%3E2010+%2Btitle%3Atrek
-		+ those character must be econded to theru hexadecimal equivalency, in order to be transmited over the internet
+		+ those character must be econded to hexadecimal equivalency, in order to be transmited over the internet
 		+ it can be dangerous, with security issues, if exposed to end users.Intensive operations can be started and can bring down the cluster
 		+ fragile -> with only one wrong character, and it will not work
 		+ so this type of query should not be used in production
@@ -12,7 +12,7 @@ Query Lite
 
 	- JSON search in depth
 		- query DSL goes in the request body as JSON (a GET request can have a body)
-		- here, we don+t have to deal woth URL encoding, becuse we don't have those cryptic characters to makeup URI searches
+		- here, we don+t have to deal woth URL encoding, because we don't have those cryptic characters to makeup URI searches
 
 		$ bin/curl -XGET 127.0.0.1:9200/movies/_search?pretty -d '
 		{
@@ -31,7 +31,7 @@ Query Lite
 			- queries
 				* used to for returnig data in terms of relevance
 
-			- boolean wuery with a filter
+			- boolean query with a filter
 				$ bin/curl -XGET 127.0.0.1:9200/movies/_search?pretty -d '
 					{
 						"bool": {
