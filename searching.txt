@@ -34,10 +34,12 @@ Query Lite
 			- boolean query with a filter
 				$ bin/curl -XGET 127.0.0.1:9200/movies/_search?pretty -d '
 					{
-						"bool": {
-							"match": {
-								"must": {"term": {"title": "trek"}}
-								"filter": {"range": {"year": {"gte": 2010}}}
+						"query": {
+							"bool": {
+								"match": {
+									"must": {"term": {"title": "trek"}}
+									"filter": {"range": {"year": {"gte": 2010}}}
+								}
 							}
 						}
 					}'
